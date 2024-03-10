@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Player {
+  id Int @id @default(autoincrement())
+
+  qid Int @unique
+
+  username String @unique
+  // unique alias only for login
+
+  pwDigested Bytes
+  // password, digested using PBKDF2.
+
+  profiles Profile[]
+
+  ownedServers Server[] @relation("owning")
+
+  involvedServers PlayerInServer[] @relation("involving")
+
+  isSiteAdmin Boolean @default(false)
+}
+
+model Server {
+  id Int @id @default(autoincrement())
+
+  tokenDigested Bytes
+  // server token, digested using PBKDF2, the same way as player password
+
+  groupId Int
+
+  name String
+
+  logoLink String
+
+  coverLink String
+
+  introduction String @db.Text
+
+  owner Player @relation("owning", fields: [ownerId], references: [id], onDelete: NoAction)
+  ownerId Int
+
+  players PlayerInServer[] @relation("involving")
+
+  javaRemote JavaRemote?
+
+  bedrockRemote BedrockRemote?
+
+  applyingPolicy ApplyingPolicy
+}
+
+enum ApplyingPolicy {
+  CLOSED
+  ALL_OPEN
+  BY_FORM
+}
+
+model PlayerInServer {
+  player Player @relation("involving", fields: [playerId], references: [id], onDelete: Cascade)
+  playerId Int
+
+  server Server @relation("involving", fields: [serverId], references: [id], onDelete: Cascade)
+  serverId Int
+
+  @@id([playerId, serverId])
+
+  isOperator Boolean
+  // whether the player OPERATES the server
+}
+
+model Profile {
+  uniqueIdProvider Int
+  // Microsoft: -1; LittleSkin: -2; Xbox: -3;
+  // Offline: matching serverId
+
+  uniqueId String
+  // Microsoft & LittleSkin: UUID
+  // Xbox: XUID as String
+  // Offline: playerName
+
+  @@id([uniqueIdProvider, uniqueId])
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  playerId Int
+
+  @@unique([playerId, uniqueIdProvider])
+
+  cachedPlayerName String
+  // Microsoft & LittleSkin & Offline: playerName
+  // Xbox: Xbox Gamer Tag
+}
+
+model JavaRemote {
+  server Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverId Int @id
+
+  address String
+
+  port Int
+
+  coreVersion String
+
+  compatibleVersions Json
+  // an array whose items are strings
+
+  uniqueIdProvider Int
+
+  modpackVersionId String?
+  // get version dependencies from https://api.modrinth.com/v2/version/${id}
+}
+
+model BedrockRemote {
+  server Server @relation(fields: [serverId], references: [id])
+  serverId Int @id
+
+  address String
+
+  port Int
+
+  coreVersion String
+
+  compatibleVersions Json
+  // an array whose items are strings
+
+  // the uniqueIdProvier of BedrockRemote is fixed to -3 (Xbox Live).
+
+  // The resource packs and add-ons are expected be provided directly by the server.
+}
+
+model ApplyingSession {
+  id Int @id @default(autoincrement())
+  // ApplyingSessions are lazily loaded, so no @relation annotations are used.
+
+  playerId Int
+
+  serverId Int
+
+  payload Json
+
+  createdAt DateTime @default(now())
+
+  state SessionState @default(REVIEWING)
+
+  profileActivated Boolean @default(false)
+  // whether the player has binded the corresponding profile
+
+  groupActivated Boolean @default(false)
+  // whether the player has entered the group
+
+  handledBy Int @default(-1)
+  // Initially the session is unhandled
+  // or joined with an invitation code => handled by "nobody"
+}
+
+enum SessionState {
+  REVIEWING
+  ACCEPTED
+  REJECTED
+  FINISHED // After the player joins the QQ group
+}
+
+model InvitationCode {
+  serverId Int
+
+  value String @id
+  // a UUID
+
+  issuedBy Int
+
+  issuedAt DateTime @default(now())
+
+  lifetime Int
+  // given in seconds; permanent: -1
+
+  reusableTimes Int
+  // infinite times: -1
+}
+
+model ServerForm {
+  uuid String @id
+
+  serverId Int
+
+  body Json
+
+  isLatest Boolean
+}
+
+model AccessApplyPayload {
+  id Int @id @default(autoincrement())
+
+  submittedBy Int
+
+  payload Json
+
+  createdAt DateTime @default(now())
+
+  state AccessApplySessionState @default(REVIEWING)
+
+  botActivated Boolean @default(false)
+  // whether the bot is invited into the corresponding group
+
+  pluginActivated Boolean @default(false)
+  // whether the plugin is correctly installed and has performed the first handshake
+}
+
+enum AccessApplySessionState {
+  REVIEWING
+  ACCEPTED
+  REJECTED
+  ACTIVATED // after all modules are enabled on the server
+}
